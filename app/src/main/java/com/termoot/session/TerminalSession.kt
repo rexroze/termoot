@@ -98,7 +98,7 @@ class TerminalSession(
                     connectSsh()
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(TAG, "Failed to connect session [$id]: ${e.message}", e)
             errorMessage = e.message ?: "Unknown connection error"
             setState(SessionState.ERROR)
