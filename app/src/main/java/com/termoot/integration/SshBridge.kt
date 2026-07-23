@@ -35,14 +35,6 @@ object SshBridge {
         keyPath: String? = null
     ): Session {
         val jsch = JSch()
-        jsch.setLogger(object : com.jcraft.jsch.Logger {
-            override fun isEnabled(level: Int) = level <= com.jcraft.jsch.Logger.DEBUG
-            override fun log(level: Int, message: String) {
-                if (isEnabled(level)) {
-                    android.util.Log.d("SshBridge", "[$level] $message")
-                }
-            }
-        })
 
         // Add identity from private key if provided
         if (!keyPath.isNullOrBlank()) {

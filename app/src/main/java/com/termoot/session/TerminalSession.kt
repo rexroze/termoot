@@ -223,7 +223,7 @@ class TerminalSession(
      * that writes back to the process or SSH channel.
      */
     private fun initializeTermuxEmulator() {
-        val output = TerminalEmulator.TerminalOutput { data, offset, count ->
+        val output = com.termux.terminal.TerminalOutput { data, offset, count ->
             try {
                 terminalOutputStream?.write(data, offset, count)
                 terminalOutputStream?.flush()
@@ -233,10 +233,11 @@ class TerminalSession(
         }
 
         termuxEmulator = TerminalEmulator(
-            /* columns      = */ 80,
-            /* rows         = */ 24,
-            /* scrollback   = */ 2000,
-            /* output       = */ output
+            /* columns          = */ 80,
+            /* rows             = */ 24,
+            /* output           = */ output,
+            /* scrollRows       = */ 2000,
+            /* cellHeightPixels = */ 16
         )
 
         // Attempt to construct a native Termux TerminalSession if the

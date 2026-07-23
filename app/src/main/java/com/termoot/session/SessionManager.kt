@@ -141,7 +141,5 @@ object SessionManager {
         _sessionsFlow.value = sessions.toMap()
     }
 
-    companion object {
-        private const val TAG = "SessionManager"
-    }
+    private const val TAG = "SessionManager"
 }
