@@ -9,6 +9,7 @@ import com.termoot.integration.ProotDistroBridge
 import com.termoot.integration.SshBridge
 import com.termoot.integration.TermuxBridge
 import com.termux.terminal.TerminalEmulator
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
@@ -82,11 +83,21 @@ class TerminalSession(
 
         try {
             when (workspace.type) {
-                WorkspaceType.LOCAL_SHELL -> connectLocalShell()
-                WorkspaceType.PROOT_DISTRO -> connectProotDistro()
-                WorkspaceType.SSH -> connectSsh()
+                WorkspaceType.LOCAL_SHELL -> {
+                    connectLocalShell()
+                    setState(SessionState.CONNECTED)
+                }
+                WorkspaceType.PROOT_DISTRO -> {
+                    connectProotDistro()
+                    setState(SessionState.CONNECTED)
+                }
+                WorkspaceType.SSH -> {
+                    // connectSsh() creates the Termux session on the calling thread,
+                    // then launches JSch connection on a background thread.
+                    // State CONNECTED/ERROR is set by the background thread.
+                    connectSsh()
+                }
             }
-            setState(SessionState.CONNECTED)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to connect session [$id]: ${e.message}", e)
             errorMessage = e.message ?: "Unknown connection error"
@@ -220,20 +231,11 @@ class TerminalSession(
         val user = workspace.sshUser
             ?: throw IllegalStateException("SSH workspace missing sshUser")
         val port = workspace.sshPort
+        val password = workspace.sshPassword
+        val keyPath = workspace.sshKeyPath
 
-        sshSession = SshBridge.createSession(
-            host = host,
-            port = port,
-            user = user,
-            password = workspace.sshPassword,
-            keyPath = workspace.sshKeyPath
-        )
-
-        sshChannel = SshBridge.openShell(sshSession!!)
-        terminalInputStream = sshChannel?.inputStream
-        terminalOutputStream = sshChannel?.outputStream
-
-        // Create a dummy TerminalSession that provides the emulator for TerminalView
+        // Create the dummy Termux TerminalSession on the CURRENT thread
+        // (must have a Looper — this runs on the main thread via SessionManager).
         val home = TermuxBridge.getHomeDirectory()
         termuxSession = com.termux.terminal.TerminalSession(
             "/system/bin/cat",
@@ -244,8 +246,40 @@ class TerminalSession(
             null
         )
 
-        // Start the bridge thread that waits for the emulator to initialise
-        startSshBridge()
+        // Launch JSch connection on a background thread to avoid
+        // blocking the main thread on network I/O.
+        Thread({
+            try {
+                sshSession = SshBridge.createSession(
+                    host = host,
+                    port = port,
+                    user = user,
+                    password = password,
+                    keyPath = keyPath
+                )
+
+                sshChannel = SshBridge.openShell(sshSession!!)
+                terminalInputStream = sshChannel?.inputStream
+                terminalOutputStream = sshChannel?.outputStream
+
+                // Signal connected before waiting for the emulator so
+                // the TerminalView renders and creates the emulator.
+                setState(SessionState.CONNECTED)
+
+                // Wait for emulator to initialise (happens when TerminalView attaches)
+                // then bridge SSH I/O to it.
+                startSshBridge()
+            } catch (e: Exception) {
+                Log.e(TAG, "SSH connection failed for session [$id]: ${e.message}", e)
+                errorMessage = e.message ?: "SSH connection failed"
+                setState(SessionState.ERROR)
+                cleanup()
+            }
+        }).apply {
+            isDaemon = true
+            name = "ssh-connect-$id"
+            start()
+        }
     }
 
     /**
@@ -258,26 +292,17 @@ class TerminalSession(
      * [terminalOutputStream] (the JSch channel output).
      */
     private fun startSshBridge() {
-        Thread {
-            var emulator: TerminalEmulator? = null
-            while (emulator == null && state == SessionState.CONNECTED && !isDisconnecting.get()) {
-                emulator = termuxSession?.getEmulator()
-                if (emulator == null) {
-                    try {
-                        Thread.sleep(50)
-                    } catch (_: InterruptedException) {
-                        return@Thread
-                    }
-                }
+        // Poll for the emulator (created by TerminalView's layout pass)
+        var emulator: TerminalEmulator? = null
+        while (emulator == null && state == SessionState.CONNECTED && !isDisconnecting.get()) {
+            emulator = termuxSession?.getEmulator()
+            if (emulator == null) {
+                try { Thread.sleep(50) } catch (_: InterruptedException) { return }
             }
+        }
 
-            if (emulator != null && state == SessionState.CONNECTED) {
-                bridgeSshToEmulator(emulator)
-            }
-        }.apply {
-            isDaemon = true
-            name = "ssh-wait-emulator-$id"
-            start()
+        if (emulator != null && state == SessionState.CONNECTED && !isDisconnecting.get()) {
+            bridgeSshToEmulator(emulator)
         }
     }
 
@@ -306,7 +331,7 @@ class TerminalSession(
                     onOutputAvailable?.invoke(buffer.copyOf(bytesRead))
                 }
             }
-        } catch (e: java.io.IOException) {
+        } catch (e: IOException) {
             if (!isDisconnecting.get()) {
                 Log.w(TAG, "SSH I/O error in bridge thread", e)
                 errorMessage = e.message

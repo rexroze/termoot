@@ -70,15 +70,8 @@ object SessionManager {
             publishSessions()
         }
 
-        // Run the actual connection on a background thread so SSH
-        // (or any blocking I/O) doesn't freeze the UI thread.
-        Thread({
-            session.connect()
-            Log.i(TAG, "Opened session [$sessionId] for workspace [${workspace.id}]")
-        }, "session-connect-$sessionId").apply {
-            isDaemon = true
-            start()
-        }
+        session.connect()
+        Log.i(TAG, "Opened session [$sessionId] for workspace [${workspace.id}]")
 
         return session
     }

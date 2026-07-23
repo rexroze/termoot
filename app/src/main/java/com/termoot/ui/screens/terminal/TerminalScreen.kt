@@ -22,13 +22,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -492,21 +493,17 @@ private fun KeySendSheet(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Arrow keys
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onKey)
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "PgUp", onKey)
-                ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "PgDn", onKey)
+        // Arrow keys — d-pad layout
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            ArrowKeyButton(Icons.Default.KeyboardArrowUp, "Up", onKey)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                ArrowKeyButton(Icons.Default.KeyboardArrowLeft, "Left", onKey)
+                ArrowKeyButton(Icons.Default.KeyboardArrowDown, "Down", onKey)
+                ArrowKeyButton(Icons.Default.KeyboardArrowRight, "Right", onKey)
             }
-            ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onKey)
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
-        ArrowKeyButton(Icons.Default.KeyboardArrowDown, "Down", onKey)
 
         Spacer(modifier = Modifier.height(24.dp))
 
