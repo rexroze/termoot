@@ -75,9 +75,8 @@ object SessionManager {
         Thread({
             session.connect()
             Log.i(TAG, "Opened session [$sessionId] for workspace [${workspace.id}]")
-        }).apply {
+        }, "session-connect-$sessionId").apply {
             isDaemon = true
-            name = "session-connect-$sessionId"
             start()
         }
 
