@@ -25,10 +25,26 @@ object TermuxBridge {
     }
 
     /**
-     * Returns the shell path — uses $SHELL if set, otherwise falls back to /bin/bash.
+     * Returns a shell path that is guaranteed to exist on the device.
+     *
+     * Priority order:
+     * 1. `$SHELL` environment variable, if the file exists
+     * 2. Termux bash at its standard install path
+     * 3. Android system shell (`/system/bin/sh`) — present on all devices
+     * 4. Fallback `/bin/sh`
      */
     fun getShell(): String {
-        return System.getenv("SHELL") ?: "/bin/bash"
+        val envShell = System.getenv("SHELL")
+        if (envShell != null && File(envShell).exists()) {
+            return envShell
+        }
+        if (File("/data/data/com.termux/files/usr/bin/bash").exists()) {
+            return "/data/data/com.termux/files/usr/bin/bash"
+        }
+        if (File("/system/bin/sh").exists()) {
+            return "/system/bin/sh"
+        }
+        return if (File("/bin/sh").exists()) "/bin/sh" else "/system/bin/sh"
     }
 
     /**
@@ -40,7 +56,11 @@ object TermuxBridge {
         return if (isTermuxRunning()) {
             "/data/data/$TERMUX_PACKAGE/files/home"
         } else {
-            TermootApplication.instance.filesDir.absolutePath
+            try {
+                TermootApplication.instance.filesDir.absolutePath
+            } catch (e: Exception) {
+                "/data/data/com.termoot/files"
+            }
         }
     }
 

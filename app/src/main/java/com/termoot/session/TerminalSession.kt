@@ -185,9 +185,11 @@ class TerminalSession(
         val env = arrayOf(
             "TERM=xterm-256color",
             "HOME=$home",
-            "PATH=/system/bin:/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets"
+            "PATH=/system/bin:/system/xbin:/data/data/com.termux/files/usr/bin"
         )
-        val args = arrayOf("--login")
+        // Only bash supports --login; sh and other shells do not.
+        val isBash = shellPath.contains("bash")
+        val args = if (isBash) arrayOf("--login") else emptyArray()
 
         termuxSession = com.termux.terminal.TerminalSession(
             shellPath,
