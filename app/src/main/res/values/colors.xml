@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="background_dark">#FF0D1117</color>
+    <color name="surface_dark">#FF161B22</color>
+    <color name="surface_variant_dark">#FF21262D</color>
+    <color name="terminal_green">#FF3FB950</color>
+    <color name="terminal_yellow">#FFD29922</color>
+    <color name="terminal_blue">#FF58A6FF</color>
+    <color name="terminal_red">#FFF85149</color>
+    <color name="terminal_purple">#FFBC8CFF</color>
+    <color name="terminal_cyan">#FF39D4C5</color>
+    <color name="terminal_white">#FFE6EDF3</color>
+</resources>
