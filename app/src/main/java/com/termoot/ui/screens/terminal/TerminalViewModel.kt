@@ -49,9 +49,9 @@ class TerminalViewModel(
         viewModelScope.launch {
             val ws = repository.getWorkspaceById(workspaceId)
             _workspace.value = ws
-            if (ws != null && sessions.value.isEmpty()) {
-                openSession(ws)
-            }
+            // Do NOT auto-connect — the user must tap "Connect" explicitly.
+            // Auto-connecting can crash the app on devices where the native
+            // Termux PTY layer is unavailable or misconfigured.
         }
     }
 

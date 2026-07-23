@@ -136,7 +136,7 @@ fun TerminalView(
             update = { view ->
                 try {
                     view.attachSession(terminalSession)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e("TerminalView", "Failed to attach session", e)
                     viewError = e.message ?: "Failed to attach terminal session"
                 }

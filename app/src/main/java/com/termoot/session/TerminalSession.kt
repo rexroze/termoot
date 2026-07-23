@@ -81,28 +81,38 @@ class TerminalSession(
         isDisconnecting.set(false)
         setState(SessionState.CONNECTING)
 
-        try {
-            when (workspace.type) {
-                WorkspaceType.LOCAL_SHELL -> {
-                    connectLocalShell()
-                    setState(SessionState.CONNECTED)
+        // Run connection on a daemon thread so that:
+        //  1) The main thread is never blocked by PTY / SSH setup, and
+        //  2) A native library crash (SIGSEGV) in the Termux JNI layer
+        //     does not take down the main process quite as aggressively.
+        Thread({
+            try {
+                when (workspace.type) {
+                    WorkspaceType.LOCAL_SHELL -> {
+                        connectLocalShell()
+                        setState(SessionState.CONNECTED)
+                    }
+                    WorkspaceType.PROOT_DISTRO -> {
+                        connectProotDistro()
+                        setState(SessionState.CONNECTED)
+                    }
+                    WorkspaceType.SSH -> {
+                        // connectSsh() creates the Termux session on the calling thread,
+                        // then launches JSch connection on a background thread.
+                        // State CONNECTED/ERROR is set by the background thread.
+                        connectSsh()
+                    }
                 }
-                WorkspaceType.PROOT_DISTRO -> {
-                    connectProotDistro()
-                    setState(SessionState.CONNECTED)
-                }
-                WorkspaceType.SSH -> {
-                    // connectSsh() creates the Termux session on the calling thread,
-                    // then launches JSch connection on a background thread.
-                    // State CONNECTED/ERROR is set by the background thread.
-                    connectSsh()
-                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to connect session [$id]: ${e.message}", e)
+                errorMessage = e.message ?: "Unknown connection error"
+                setState(SessionState.ERROR)
+                cleanup()
             }
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed to connect session [$id]: ${e.message}", e)
-            errorMessage = e.message ?: "Unknown connection error"
-            setState(SessionState.ERROR)
-            cleanup()
+        }).apply {
+            isDaemon = true
+            name = "term-connect-$id"
+            start()
         }
     }
 
