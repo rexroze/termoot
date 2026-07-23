@@ -3,7 +3,7 @@ package com.termoot.ui.screens.workspaces
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.termoot.data.repository.StubWorkspaceRepository
+import com.termoot.TermootApplication
 import com.termoot.data.repository.WorkspaceRepository
 import com.termoot.domain.model.Workspace
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class WorkspaceListViewModel(
-    private val repository: WorkspaceRepository = StubWorkspaceRepository()
+    private val repository: WorkspaceRepository
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -57,7 +57,7 @@ class WorkspaceListViewModel(
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return WorkspaceListViewModel(StubWorkspaceRepository()) as T
+                return WorkspaceListViewModel(TermootApplication.instance.repository) as T
             }
         }
     }

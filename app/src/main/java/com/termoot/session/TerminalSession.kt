@@ -16,9 +16,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Manages a single terminal session — local shell, proot-distro, or SSH.
  *
- * Each session wraps either a local [Process] (for LOCAL_SHELL and PROOT_DISTRO)
- * or a JSch [ChannelShell] (for SSH) and provides read/write access to the
- * underlying terminal. State transitions are tracked via [state].
+ * For [WorkspaceType.LOCAL_SHELL] and [WorkspaceType.PROOT_DISTRO], the session
+ * delegates to the Termux library's [com.termux.terminal.TerminalSession], which
+ * handles PTY allocation and process management. For [WorkspaceType.SSH], a JSch
+ * [ChannelShell] provides the I/O channel and a dummy Termux session provides
+ * the terminal emulator for rendering.
  */
 class TerminalSession(
     val id: String,
@@ -34,11 +36,7 @@ class TerminalSession(
     var errorMessage: String? = null
         private set
 
-    /** The Termux terminal-emulator engine, used to decode/encode terminal sequences. */
-    var termuxEmulator: TerminalEmulator? = null
-        private set
-
-    /** The Termux TerminalSession from the library (may be null if JNI isn't available). */
+    /** The Termux TerminalSession from the library (handles PTY and process). */
     var termuxSession: com.termux.terminal.TerminalSession? = null
         private set
 
@@ -46,18 +44,14 @@ class TerminalSession(
     var sshSession: com.jcraft.jsch.Session? = null
         private set
 
-    /** The underlying local process — non-null for LOCAL_SHELL and PROOT_DISTRO. */
-    var shellProcess: Process? = null
-        private set
-
     /** The JSch shell channel — non-null for SSH type. */
     var sshChannel: ChannelShell? = null
         private set
 
-    /** Input stream from the process/channel (what we read from the terminal). */
+    /** Input stream from the SSH channel (what we read from the remote terminal). */
     private var terminalInputStream: InputStream? = null
 
-    /** Output stream to the process/channel (what we write to the terminal). */
+    /** Output stream to the SSH channel (what we write to the remote terminal). */
     private var terminalOutputStream: OutputStream? = null
 
     /** Callback invoked when new output bytes are available from the terminal. */
@@ -69,14 +63,16 @@ class TerminalSession(
     var onStateChanged: ((SessionState) -> Unit)? = null
 
     private val isDisconnecting = AtomicBoolean(false)
-    private var ioThread: Thread? = null
 
     /**
      * Connects the session based on [workspace.type].
      *
-     * - [WorkspaceType.LOCAL_SHELL]: spawns a local shell process.
-     * - [WorkspaceType.PROOT_DISTRO]: spawns `proot-distro login <distro>`.
-     * - [WorkspaceType.SSH]: establishes an SSH connection via JSch.
+     * - [WorkspaceType.LOCAL_SHELL]: creates a Termux TerminalSession
+     *   (the shell process spawns when TerminalView attaches and lays out).
+     * - [WorkspaceType.PROOT_DISTRO]: creates a Termux TerminalSession for
+     *   `proot-distro login <distro>`.
+     * - [WorkspaceType.SSH]: establishes an SSH connection via JSch and creates
+     *   a dummy Termux TerminalSession whose emulator is fed remote output.
      */
     fun connect() {
         if (state == SessionState.CONNECTED || state == SessionState.CONNECTING) return
@@ -111,26 +107,44 @@ class TerminalSession(
     }
 
     /**
-     * Writes a text string to the terminal's input stream.
+     * Writes a text string to the terminal.
+     *
+     * For local/proot sessions the Termux [termuxSession] handles the write to
+     * the PTY.  For SSH sessions (where the dummy cat process has been killed
+     * and [com.termux.terminal.TerminalSession.isRunning] returns false) the
+     * write is sent to the JSch channel output stream.
      */
     fun write(text: String) {
         if (state != SessionState.CONNECTED) return
         try {
-            terminalOutputStream?.write(text.toByteArray(Charsets.UTF_8))
-            terminalOutputStream?.flush()
+            val session = termuxSession
+            if (session != null && session.isRunning()) {
+                val data = text.toByteArray(Charsets.UTF_8)
+                session.write(data, 0, data.size)
+            } else {
+                terminalOutputStream?.write(text.toByteArray(Charsets.UTF_8))
+                terminalOutputStream?.flush()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Write error on session [$id]", e)
         }
     }
 
     /**
-     * Writes raw bytes to the terminal's input stream.
+     * Writes raw bytes to the terminal.
+     *
+     * See [write] for the dispatch logic between Termux session and SSH channel.
      */
     fun writeBytes(data: ByteArray) {
         if (state != SessionState.CONNECTED) return
         try {
-            terminalOutputStream?.write(data)
-            terminalOutputStream?.flush()
+            val session = termuxSession
+            if (session != null && session.isRunning()) {
+                session.write(data, 0, data.size)
+            } else {
+                terminalOutputStream?.write(data)
+                terminalOutputStream?.flush()
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Write error on session [$id]", e)
         }
@@ -138,11 +152,15 @@ class TerminalSession(
 
     /**
      * Notifies the terminal of a size change (columns × rows).
-     * For local processes this is best-effort; for SSH channels the PTY
-     * size is sent via the JSch channel API.
+     *
+     * For local/proot, [com.termux.terminal.TerminalSession.updateSize] is
+     * called automatically by TerminalView on layout; this explicit resize
+     * also propagates to the SSH remote PTY when applicable.
      */
     fun resize(cols: Int, rows: Int) {
-        termuxEmulator?.resize(cols, rows, cols * 8, rows * 16)
+        // Note: termuxSession.updateSize() is called automatically by
+        // TerminalView on layout with correct pixel dimensions; we only
+        // need to resize the SSH channel PTY separately.
         sshChannel?.setPtySize(cols, rows, cols * 8, rows * 16)
     }
 
@@ -151,25 +169,23 @@ class TerminalSession(
     // ---------------------------------------------------------------
 
     private fun connectLocalShell() {
-        val shell = TermuxBridge.getShell()
+        val shellPath = TermuxBridge.getShell()
         val home = TermuxBridge.getHomeDirectory()
         val env = arrayOf(
             "TERM=xterm-256color",
             "HOME=$home",
             "PATH=/system/bin:/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets"
         )
+        val args = arrayOf("--login")
 
-        val pb = ProcessBuilder(shell)
-        pb.environment().put("TERM", "xterm-256color")
-        pb.environment().put("HOME", home)
-        pb.directory(java.io.File(home))
-        pb.redirectErrorStream(true)
-
-        shellProcess = pb.start()
-        terminalInputStream = shellProcess?.inputStream
-        terminalOutputStream = shellProcess?.outputStream
-
-        startIoThread()
+        termuxSession = com.termux.terminal.TerminalSession(
+            shellPath,
+            home,
+            args,
+            env,
+            null,
+            null
+        )
     }
 
     private fun connectProotDistro() {
@@ -179,17 +195,23 @@ class TerminalSession(
         val cmd = ProotDistroBridge.loginCommand(distro)
         val home = TermuxBridge.getHomeDirectory()
 
-        val pb = ProcessBuilder(cmd)
-        pb.environment().put("TERM", "xterm-256color")
-        pb.environment().put("HOME", home)
-        pb.directory(java.io.File(home))
-        pb.redirectErrorStream(true)
+        val shellPath = cmd[0]
+        val args = cmd.drop(1).toTypedArray()
 
-        shellProcess = pb.start()
-        terminalInputStream = shellProcess?.inputStream
-        terminalOutputStream = shellProcess?.outputStream
+        val env = arrayOf(
+            "TERM=xterm-256color",
+            "HOME=$home",
+            "PATH=/system/bin:/data/data/com.termux/files/usr/bin:/data/data/com.termux/files/usr/bin/applets"
+        )
 
-        startIoThread()
+        termuxSession = com.termux.terminal.TerminalSession(
+            shellPath,
+            home,
+            args,
+            env,
+            null,
+            null
+        )
     }
 
     private fun connectSsh() {
@@ -211,97 +233,114 @@ class TerminalSession(
         terminalInputStream = sshChannel?.inputStream
         terminalOutputStream = sshChannel?.outputStream
 
-        startIoThread()
+        // Create a dummy TerminalSession that provides the emulator for TerminalView
+        val home = TermuxBridge.getHomeDirectory()
+        termuxSession = com.termux.terminal.TerminalSession(
+            "/system/bin/cat",
+            home,
+            arrayOf(),
+            arrayOf("TERM=xterm-256color", "HOME=$home"),
+            null,
+            null
+        )
+
+        // Start the bridge thread that waits for the emulator to initialise
+        startSshBridge()
     }
 
     /**
-     * Starts a daemon thread that reads output from the terminal (process
-     * stdout or SSH channel input) and forwards it to [onOutputAvailable].
+     * Waits for the Termux emulator to be initialised (which happens when
+     * TerminalView attaches and lays out), then bridges SSH channel I/O to
+     * the emulator.
+     *
+     * The dummy `cat` process is killed once the emulator is ready; subsequent
+     * writes through [termuxSession] become no-ops, so input must go through
+     * [terminalOutputStream] (the JSch channel output).
      */
-    private fun startIoThread() {
-        val inputStream = terminalInputStream
-            ?: throw IllegalStateException("terminalInputStream is null")
+    private fun startSshBridge() {
+        Thread {
+            var emulator: TerminalEmulator? = null
+            while (emulator == null && state == SessionState.CONNECTED && !isDisconnecting.get()) {
+                emulator = termuxSession?.getEmulator()
+                if (emulator == null) {
+                    try {
+                        Thread.sleep(50)
+                    } catch (_: InterruptedException) {
+                        return@Thread
+                    }
+                }
+            }
 
-        ioThread = Thread {
-            val buffer = ByteArray(4096)
-            try {
-                while (!isDisconnecting.get() && state != SessionState.DISCONNECTED) {
-                    val bytesRead = inputStream.read(buffer)
-                    if (bytesRead == -1) {
-                        // Process exited or channel closed
-                        if (!isDisconnecting.get()) {
-                            Log.i(TAG, "End of stream reached for session [$id]")
-                            setState(SessionState.DISCONNECTED)
-                        }
-                        break
-                    }
-                    if (bytesRead > 0) {
-                        val chunk = buffer.copyOf(bytesRead)
-                        // Track output (skip emulator feed — Java I/O loop handles this)
-                        // Notify listeners
-                        onOutputAvailable?.invoke(chunk)
-                    }
-                }
-            } catch (e: java.io.IOException) {
-                if (!isDisconnecting.get()) {
-                    Log.w(TAG, "I/O error in reader thread", e)
-                    errorMessage = e.message
-                    setState(SessionState.ERROR)
-                }
-            } catch (e: Exception) {
-                if (!isDisconnecting.get()) {
-                    Log.e(TAG, "Unexpected error in I/O thread", e)
-                    errorMessage = e.message
-                    setState(SessionState.ERROR)
-                }
+            if (emulator != null && state == SessionState.CONNECTED) {
+                bridgeSshToEmulator(emulator)
             }
         }.apply {
             isDaemon = true
-            name = "session-io-$id"
+            name = "ssh-wait-emulator-$id"
             start()
         }
     }
 
+    private fun bridgeSshToEmulator(emulator: TerminalEmulator) {
+        val channel = sshChannel ?: return
+        val input = channel.inputStream
+
+        // Kill the dummy cat process — after this termuxSession.write() is a no-op
+        termuxSession?.finishIfRunning()
+
+        Log.i(TAG, "SSH bridge started for session [$id]")
+
+        val buffer = ByteArray(4096)
+        try {
+            while (state == SessionState.CONNECTED && !isDisconnecting.get()) {
+                val bytesRead = input.read(buffer)
+                if (bytesRead == -1) {
+                    Log.i(TAG, "SSH channel closed for session [$id]")
+                    if (!isDisconnecting.get()) {
+                        setState(SessionState.DISCONNECTED)
+                    }
+                    break
+                }
+                if (bytesRead > 0) {
+                    emulator.append(buffer, bytesRead)
+                    onOutputAvailable?.invoke(buffer.copyOf(bytesRead))
+                }
+            }
+        } catch (e: java.io.IOException) {
+            if (!isDisconnecting.get()) {
+                Log.w(TAG, "SSH I/O error in bridge thread", e)
+                errorMessage = e.message
+                setState(SessionState.ERROR)
+            }
+        } catch (e: Exception) {
+            if (!isDisconnecting.get()) {
+                Log.e(TAG, "Unexpected error in SSH bridge", e)
+                errorMessage = e.message
+                setState(SessionState.ERROR)
+            }
+        }
+    }
+
     /**
-     * Releases all native resources: kills the local process, disconnects
-     * the SSH session/channel, and interrupts the I/O thread.
+     * Releases all resources: kills the Termux session, disconnects the SSH
+     * channel and session, and clears I/O streams.
      */
     private fun cleanup() {
         try {
-            // Interrupt I/O thread
-            ioThread?.interrupt()
-            ioThread = null
-        } catch (_: Exception) {
-        }
+            termuxSession?.finishIfRunning()
+        } catch (_: Exception) {}
+        termuxSession = null
 
         try {
-            // Kill local process
-            shellProcess?.destroyForcibly()
-            shellProcess = null
-        } catch (_: Exception) {
-        }
-
-        try {
-            // Disconnect SSH channel
             sshChannel?.disconnect()
             sshChannel = null
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
 
         try {
-            // Disconnect SSH session
             SshBridge.disconnect(sshSession)
             sshSession = null
-        } catch (_: Exception) {
-        }
+        } catch (_: Exception) {}
 
-        // Clean up Termux session
-        try {
-            termuxSession = null
-        } catch (_: Exception) {
-        }
-        termuxSession = null
-        termuxEmulator = null
         terminalInputStream = null
         terminalOutputStream = null
     }

@@ -80,6 +80,7 @@ fun TerminalScreen(
     val workspace by viewModel.workspace.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
     val activeSessionId by viewModel.activeSessionId.collectAsState()
+    val activeSession = sessions.find { it.id == activeSessionId }
     var showKeySheet by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -100,10 +101,13 @@ fun TerminalScreen(
             TerminalBottomToolbar(
                 canSendKeys = sessions.isNotEmpty(),
                 onSendKeys = { showKeySheet = true },
-                canCopy = false,
-                canPaste = false,
-                isConnected = sessions.any { it.isActive && it.state == SessionState.CONNECTED },
-                onDisconnect = {}
+                canCopy = activeSession?.let { it.state == SessionState.CONNECTED } ?: false,
+                canPaste = activeSession?.let { it.state == SessionState.CONNECTED } ?: false,
+                isConnected = activeSession?.let { it.state == SessionState.CONNECTED } ?: false,
+                onDisconnect = {
+                    activeSessionId?.let { viewModel.disconnectSession(it) }
+                },
+                onPaste = { viewModel.pasteText() }
             )
         },
         containerColor = BackgroundDark
@@ -124,7 +128,6 @@ fun TerminalScreen(
                 )
             } else {
                 /* ── Terminal content ── */
-                val activeSession = sessions.find { it.id == activeSessionId }
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Connection status row
                     Row(
@@ -159,12 +162,10 @@ fun TerminalScreen(
                             .fillMaxSize()
                             .background(BackgroundDark)
                     ) {
-                        // For the MVP stub: show a placeholder when we don't have
-                        // a real Termux TerminalSession. The real integration will
-                        // pass an actual com.termux.terminal.TerminalSession here.
                         if (activeSession?.state == SessionState.CONNECTED) {
+                            val ts = viewModel.activeSession?.termuxSession
                             TerminalView(
-                                terminalSession = null, // TODO: pass real Termux session
+                                terminalSession = ts,
                                 modifier = Modifier.fillMaxSize()
                             )
                         } else if (activeSession?.state == SessionState.ERROR) {
@@ -219,7 +220,7 @@ fun TerminalScreen(
             shape = MaterialTheme.shapes.large
         ) {
             KeySendSheet(
-                onKey = { /* TODO: send key to terminal */ },
+                onKey = { viewModel.sendKey(it) },
                 onDismiss = { showKeySheet = false }
             )
         }
@@ -385,7 +386,9 @@ private fun TerminalBottomToolbar(
     canCopy: Boolean,
     canPaste: Boolean,
     isConnected: Boolean,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    onCopy: () -> Unit = {},
+    onPaste: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -405,18 +408,18 @@ private fun TerminalBottomToolbar(
             icon = Icons.Default.ContentCopy,
             label = "Copy",
             enabled = canCopy,
-            onClick = { /* TODO */ }
+            onClick = onCopy
         )
         ToolbarButton(
             icon = Icons.Default.ContentPaste,
             label = "Paste",
             enabled = canPaste,
-            onClick = { /* TODO */ }
+            onClick = onPaste
         )
         ToolbarButton(
             icon = Icons.Default.PowerSettingsNew,
             label = if (isConnected) "Disconnect" else "Reconnect",
-            enabled = false,
+            enabled = canSendKeys,
             onClick = onDisconnect,
             tint = if (isConnected) TerminalGreen else TextDisabled
         )

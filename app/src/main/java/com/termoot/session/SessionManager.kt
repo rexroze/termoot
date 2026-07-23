@@ -1,6 +1,7 @@
 package com.termoot.session
 
 import android.util.Log
+import com.termoot.domain.model.Session
 import com.termoot.domain.model.SessionState
 import com.termoot.domain.model.Workspace
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +27,10 @@ object SessionManager {
 
     /** Observable state flow of all active sessions, keyed by session ID. */
     val sessionsFlow: StateFlow<Map<String, TerminalSession>> = _sessionsFlow.asStateFlow()
+
+    /** Domain-model sessions exposed for the UI layer. */
+    private val _domainSessions = MutableStateFlow<List<Session>>(emptyList())
+    val domainSessions: StateFlow<List<Session>> = _domainSessions.asStateFlow()
 
     /** The currently active (focused) session ID, or null if no session is active. */
     @Volatile
@@ -59,14 +64,23 @@ object SessionManager {
         publishSessions()
         setActiveSession(sessionId)
 
-        // Wire up state change forwarding
+        // Wire up state change forwarding and keep domain sessions in sync
         session.onStateChanged = { newState ->
             onStateChange?.invoke(sessionId, newState)
+            publishSessions()
         }
 
-        session.connect()
+        // Run the actual connection on a background thread so SSH
+        // (or any blocking I/O) doesn't freeze the UI thread.
+        Thread({
+            session.connect()
+            Log.i(TAG, "Opened session [$sessionId] for workspace [${workspace.id}]")
+        }).apply {
+            isDaemon = true
+            name = "session-connect-$sessionId"
+            start()
+        }
 
-        Log.i(TAG, "Opened session [$sessionId] for workspace [${workspace.id}]")
         return session
     }
 
@@ -139,6 +153,24 @@ object SessionManager {
      */
     private fun publishSessions() {
         _sessionsFlow.value = sessions.toMap()
+        publishDomainSessions()
+    }
+
+    /**
+     * Maps internal [TerminalSession] instances to UI-facing [Session] domain objects
+     * and publishes them to [domainSessions].
+     */
+    private fun publishDomainSessions() {
+        _domainSessions.value = sessions.values.map { ts ->
+            Session(
+                id = ts.id,
+                workspaceId = ts.workspace.id,
+                name = ts.name,
+                state = ts.state,
+                errorMessage = ts.errorMessage,
+                isActive = ts.id == activeSessionId
+            )
+        }
     }
 
     private const val TAG = "SessionManager"

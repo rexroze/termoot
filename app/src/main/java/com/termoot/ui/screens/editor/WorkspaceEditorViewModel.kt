@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.termoot.data.repository.StubWorkspaceRepository
+import com.termoot.TermootApplication
 import com.termoot.data.repository.WorkspaceRepository
 import com.termoot.domain.model.Workspace
 import com.termoot.domain.model.WorkspaceType
@@ -25,7 +25,7 @@ import java.util.UUID
  */
 class WorkspaceEditorViewModel(
     private val workspaceId: String?,
-    private val repository: WorkspaceRepository = StubWorkspaceRepository()
+    private val repository: WorkspaceRepository
 ) : ViewModel() {
 
     /* ── Form fields ── */
@@ -162,7 +162,7 @@ class WorkspaceEditorViewModel(
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                    return WorkspaceEditorViewModel(workspaceId) as T
+                    return WorkspaceEditorViewModel(workspaceId, TermootApplication.instance.repository) as T
                 }
             }
     }
