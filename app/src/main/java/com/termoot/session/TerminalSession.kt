@@ -213,45 +213,7 @@ class TerminalSession(
         terminalInputStream = sshChannel?.inputStream
         terminalOutputStream = sshChannel?.outputStream
 
-        initializeTermuxEmulator()
         startIoThread()
-    }
-
-    /**
-     * Creates a [TerminalEmulator] from the Termux library to provide
-     * terminal state/screen tracking. The emulator receives a [TerminalOutput]
-     * that writes back to the process or SSH channel.
-     */
-    private fun initializeTermuxEmulator() {
-        val output = com.termux.terminal.TerminalOutput { data, offset, count ->
-            try {
-                terminalOutputStream?.write(data, offset, count)
-                terminalOutputStream?.flush()
-            } catch (e: Exception) {
-                Log.w(TAG, "TerminalOutput write error", e)
-            }
-        }
-
-        termuxEmulator = TerminalEmulator(
-            /* columns          = */ 80,
-            /* rows             = */ 24,
-            /* output           = */ output,
-            /* scrollRows       = */ 2000,
-            /* cellHeightPixels = */ 16
-        )
-
-        // Attempt to construct a native Termux TerminalSession if the
-        // JNI library is available. This is best-effort; most functionality
-        // is handled by our own I/O loop.
-        try {
-            // Termux TerminalSession is created with emulator and process info
-            // Skip native session creation — our Java I/O loop handles terminal I/O
-            Log.i(TAG, "TerminalSession: using pure-Java I/O loop")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.i(TAG, "Termux JNI not available, using pure-Java I/O")
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not create TerminalSession via JNI", e)
-        }
     }
 
     /**
