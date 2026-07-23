@@ -3,6 +3,8 @@ package com.termoot.ui.components
 import android.graphics.Typeface
 import android.util.Log
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
@@ -64,7 +66,29 @@ fun TerminalView(
                 // For SSH sessions: intercept keystrokes so they go to the
                 // JSch channel instead of the dead dummy PTY.
                 if (onWrite != null) {
-                    setTerminalViewClient(object : com.termux.view.TerminalViewClient() {
+                    setTerminalViewClient(object : com.termux.view.TerminalViewClient {
+                        override fun onScale(scale: Float): Float = scale
+                        override fun onSingleTapUp(e: MotionEvent) {}
+                        override fun shouldBackButtonBeMappedToEscape(): Boolean = false
+                        override fun shouldEnforceCharBasedInput(): Boolean = false
+                        override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
+                        override fun isTerminalViewSelected(): Boolean = false
+                        override fun copyModeChanged(copyMode: Boolean) {}
+                        override fun onKeyUp(keyCode: Int, e: KeyEvent): Boolean = false
+                        override fun onLongPress(event: MotionEvent): Boolean = false
+                        override fun readControlKey(): Boolean = false
+                        override fun readAltKey(): Boolean = false
+                        override fun readShiftKey(): Boolean = false
+                        override fun readFnKey(): Boolean = false
+                        override fun onEmulatorSet() {}
+                        override fun logError(tag: String, message: String) {}
+                        override fun logWarn(tag: String, message: String) {}
+                        override fun logInfo(tag: String, message: String) {}
+                        override fun logDebug(tag: String, message: String) {}
+                        override fun logVerbose(tag: String, message: String) {}
+                        override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {}
+                        override fun logStackTrace(tag: String, e: Exception) {}
+
                         override fun onKeyDown(
                             keyCode: Int,
                             event: KeyEvent,
