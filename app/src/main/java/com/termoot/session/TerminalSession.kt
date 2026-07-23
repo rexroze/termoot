@@ -169,7 +169,6 @@ class TerminalSession(
         terminalInputStream = shellProcess?.inputStream
         terminalOutputStream = shellProcess?.outputStream
 
-        initializeTermuxEmulator()
         startIoThread()
     }
 
@@ -190,7 +189,6 @@ class TerminalSession(
         terminalInputStream = shellProcess?.inputStream
         terminalOutputStream = shellProcess?.outputStream
 
-        initializeTermuxEmulator()
         startIoThread()
     }
 
