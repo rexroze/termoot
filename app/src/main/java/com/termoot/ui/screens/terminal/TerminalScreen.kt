@@ -165,9 +165,13 @@ fun TerminalScreen(
                     ) {
                         if (activeSession?.state == SessionState.CONNECTED) {
                             val ts = viewModel.activeSession?.termuxSession
+                            val projectSession = viewModel.activeSession
                             TerminalView(
                                 terminalSession = ts,
-                                modifier = Modifier.fillMaxSize()
+                                modifier = Modifier.fillMaxSize(),
+                                onWrite = projectSession?.let { session ->
+                                    { bytes: ByteArray -> session.writeBytes(bytes) }
+                                }
                             )
                         } else if (activeSession?.state == SessionState.ERROR) {
                             Box(

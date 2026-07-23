@@ -2,7 +2,10 @@ package com.termoot.ui.components
 
 import android.graphics.Typeface
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,7 +47,8 @@ import com.termoot.ui.theme.TextSecondary
 @Composable
 fun TerminalView(
     terminalSession: com.termux.terminal.TerminalSession?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onWrite: ((ByteArray) -> Unit)? = null
 ) {
     val context = LocalContext.current
     var viewError by remember { mutableStateOf<String?>(null) }
@@ -56,6 +60,37 @@ fun TerminalView(
                 setBackgroundColor(BackgroundDark.toArgb())
                 setTextSize(12)
                 setTypeface(Typeface.MONOSPACE)
+
+                // For SSH sessions: intercept keystrokes so they go to the
+                // JSch channel instead of the dead dummy PTY.
+                if (onWrite != null) {
+                    setTerminalViewClient(object : com.termux.view.TerminalViewClient() {
+                        override fun onKeyDown(
+                            keyCode: Int,
+                            event: KeyEvent,
+                            session: com.termux.terminal.TerminalSession
+                        ): Boolean {
+                            val bytes = keyEventToBytes(keyCode, event)
+                            if (bytes != null) {
+                                onWrite(bytes)
+                                return true
+                            }
+                            return false
+                        }
+
+                        override fun onCodePoint(
+                            codePoint: Int,
+                            ctrlDown: Boolean,
+                            session: com.termux.terminal.TerminalSession
+                        ): Boolean {
+                            val bytes = codePointToUtf8(codePoint)
+                            if (bytes.isNotEmpty()) {
+                                onWrite(bytes)
+                            }
+                            return true // always consume for SSH
+                        }
+                    })
+                }
             }
         } catch (e: UnsatisfiedLinkError) {
             Log.e("TerminalView", "Native library missing", e)
@@ -123,5 +158,53 @@ fun TerminalView(
                 )
             }
         }
+    }
+}
+
+// ── Input helpers for SSH keyboard interception ─────────────────
+
+private fun codePointToUtf8(codePoint: Int): ByteArray {
+    if (codePoint !in 0x00..0x10FFFF) return ByteArray(0)
+    if (codePoint in 0xD800..0xDFFF) return ByteArray(0) // surrogate range
+    val chars = Character.toChars(codePoint)
+    val utf8 = Charsets.UTF_8.newEncoder()
+        .onMalformedInput(CodingErrorAction.REPLACE)
+        .onUnmappableCharacter(CodingErrorAction.REPLACE)
+        .encode(CharBuffer.wrap(chars))
+    val bytes = ByteArray(utf8.remaining())
+    utf8.get(bytes)
+    return bytes
+}
+
+private fun keyEventToBytes(keyCode: Int, event: KeyEvent): ByteArray? {
+    if (event.action != KeyEvent.ACTION_DOWN) return null
+    return when (keyCode) {
+        KeyEvent.KEYCODE_ENTER -> byteArrayOf(0x0D)
+        KeyEvent.KEYCODE_DEL -> byteArrayOf(0x7F)
+        KeyEvent.KEYCODE_TAB -> byteArrayOf(0x09)
+        KeyEvent.KEYCODE_ESCAPE -> byteArrayOf(0x1B)
+        KeyEvent.KEYCODE_DPAD_UP -> "\u001B[A".toByteArray()
+        KeyEvent.KEYCODE_DPAD_DOWN -> "\u001B[B".toByteArray()
+        KeyEvent.KEYCODE_DPAD_LEFT -> "\u001B[D".toByteArray()
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001B[C".toByteArray()
+        KeyEvent.KEYCODE_PAGE_UP -> "\u001B[5~".toByteArray()
+        KeyEvent.KEYCODE_PAGE_DOWN -> "\u001B[6~".toByteArray()
+        KeyEvent.KEYCODE_MOVE_HOME -> "\u001B[H".toByteArray()
+        KeyEvent.KEYCODE_MOVE_END -> "\u001B[F".toByteArray()
+        KeyEvent.KEYCODE_INSERT -> "\u001B[2~".toByteArray()
+        KeyEvent.KEYCODE_FORWARD_DEL -> "\u001B[3~".toByteArray()
+        KeyEvent.KEYCODE_F1 -> "\u001BOP".toByteArray()
+        KeyEvent.KEYCODE_F2 -> "\u001BOQ".toByteArray()
+        KeyEvent.KEYCODE_F3 -> "\u001BOR".toByteArray()
+        KeyEvent.KEYCODE_F4 -> "\u001BOS".toByteArray()
+        KeyEvent.KEYCODE_F5 -> "\u001B[15~".toByteArray()
+        KeyEvent.KEYCODE_F6 -> "\u001B[17~".toByteArray()
+        KeyEvent.KEYCODE_F7 -> "\u001B[18~".toByteArray()
+        KeyEvent.KEYCODE_F8 -> "\u001B[19~".toByteArray()
+        KeyEvent.KEYCODE_F9 -> "\u001B[20~".toByteArray()
+        KeyEvent.KEYCODE_F10 -> "\u001B[21~".toByteArray()
+        KeyEvent.KEYCODE_F11 -> "\u001B[23~".toByteArray()
+        KeyEvent.KEYCODE_F12 -> "\u001B[24~".toByteArray()
+        else -> null // regular chars handled by onCodePoint
     }
 }
