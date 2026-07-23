@@ -24,8 +24,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.automirrored.filled.KeyboardDoubleArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
@@ -498,8 +496,8 @@ private fun KeySendSheet(
         ) {
             ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Left", onKey)
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardDoubleArrowLeft, "Up", onKey)
-                ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardDoubleArrowRight, "Down", onKey)
+                ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "PgUp", onKey)
+                ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "PgDn", onKey)
             }
             ArrowKeyButton(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Right", onKey)
         }

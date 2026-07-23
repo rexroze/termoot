@@ -33,10 +33,10 @@ fun TerminalView(
     val context = LocalContext.current
 
     val terminalView = remember {
-        com.termux.view.TerminalView(context).apply {
+        com.termux.view.TerminalView(context, null).apply {
             id = View.generateViewId()
             setBackgroundColor(BackgroundDark.toArgb())
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextSize(12)
             setTypeface(Typeface.MONOSPACE)
         }
     }

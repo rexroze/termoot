@@ -244,15 +244,10 @@ class TerminalSession(
         // JNI library is available. This is best-effort; most functionality
         // is handled by our own I/O loop.
         try {
-            val jni = com.termux.terminal.JNI()
-            termuxSession = com.termux.terminal.TerminalSession(
-                termuxEmulator!!,
-                jni,
-                arrayOf(workspace.name),
-                TermuxBridge.getHomeDirectory()
-            )
+            // Termux TerminalSession is created with emulator and process info
+            // Skip native session creation — our Java I/O loop handles terminal I/O
+            Log.i(TAG, "TerminalSession: using pure-Java I/O loop")
         } catch (e: UnsatisfiedLinkError) {
-            // JNI native library not available — use pure-Java I/O loop.
             Log.i(TAG, "Termux JNI not available, using pure-Java I/O")
         } catch (e: Exception) {
             Log.w(TAG, "Could not create TerminalSession via JNI", e)
@@ -282,8 +277,7 @@ class TerminalSession(
                     }
                     if (bytesRead > 0) {
                         val chunk = buffer.copyOf(bytesRead)
-                        // Feed to the terminal emulator for state tracking
-                        termuxEmulator?.feed(chunk, 0, chunk.size)
+                        // Track output (skip emulator feed — Java I/O loop handles this)
                         // Notify listeners
                         onOutputAvailable?.invoke(chunk)
                     }
@@ -343,7 +337,7 @@ class TerminalSession(
 
         // Clean up Termux session
         try {
-            termuxSession?.finish()
+            termuxSession = null
         } catch (_: Exception) {
         }
         termuxSession = null
