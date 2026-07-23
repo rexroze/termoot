@@ -79,9 +79,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Termux Terminal Emulator
-    implementation("com.github.termux:terminal-emulator:0.119.1")
-    implementation("com.github.termux:terminal-view:0.119.1")
+    // Termux Terminal Emulator (from JitPack: com.github.{owner}.{repo}:{module}:{tag})
+    // terminal-view depends on terminal-emulator transitively
+    implementation("com.github.termux.termux-app:terminal-view:v0.118.3")
 
     // SSH
     implementation("com.github.mwiede:jsch:0.2.20")
